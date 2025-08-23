@@ -289,7 +289,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             text=f'❌ حدث خطأ عام أثناء معالجة طلبك:\n{str(error)}'
         )
 
+# متغير عام للتحكم في الخادم
+http_server_started = False
+
 def setup_http_server():
+    global http_server_started
+    
+    if http_server_started:
+        return
+        
     class MyHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
             if self.path == '/health':
@@ -317,16 +325,26 @@ def setup_http_server():
 
     def run_server():
         try:
+            # إعادة استخدام العنوان
+            socketserver.TCPServer.allow_reuse_address = True
             with socketserver.TCPServer(("0.0.0.0", PORT), MyHTTPRequestHandler) as httpd:
                 logger.info(f"🌐 HTTP server running on port {PORT}")
                 httpd.serve_forever()
+        except OSError as e:
+            if "Address already in use" in str(e):
+                logger.warning(f"⚠️ HTTP server already running on port {PORT}")
+            else:
+                logger.error(f"❌ Failed to start HTTP server: {e}")
         except Exception as e:
             logger.error(f"❌ Failed to start HTTP server: {e}")
 
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
+    if not http_server_started:
+        server_thread = threading.Thread(target=run_server, daemon=True)
+        server_thread.start()
+        http_server_started = True
 
-async def main() -> None:
+def main():
+    """تشغيل البوت مع إدارة أفضل لدورة الحياة"""
     # إزالة نظام القفل في PythonAnywhere لأنه غير متوافق
     if os.path.exists('bot.lock'):
         try:
@@ -335,7 +353,10 @@ async def main() -> None:
         except:
             pass
 
+    # إعداد خادم HTTP في thread منفصل
     setup_http_server()
+    
+    # إنشاء التطبيق
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
@@ -344,34 +365,21 @@ async def main() -> None:
     logger.info('🤖 Telegram Bot is running...')
     logger.info('Make sure to set TELEGRAM_BOT_TOKEN environment variable')
 
-    # إضافة مهمة فحص دوري لحالة البوت
-    async def health_check():
-        while True:
-            try:
-                await asyncio.sleep(60)  # فحص كل دقيقة
-                logger.info('💓 Bot health check - running normally')
-            except Exception as e:
-                logger.error(f'Health check failed: {e}')
-                break
-
     try:
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling()
-        
-        # تشغيل فحص الحالة في الخلفية
-        health_task = asyncio.create_task(health_check())
-        
-        # انتظار إلى الأبد
-        await asyncio.Event().wait()
-        
+        # تشغيل البوت مع polling
+        application.run_polling(
+            poll_interval=0.0,
+            timeout=10,
+            bootstrap_retries=5,
+            read_timeout=5,
+            write_timeout=5,
+            connect_timeout=5,
+            pool_timeout=1,
+        )
+    except KeyboardInterrupt:
+        logger.info('🛑 Shutting down...')
     except Exception as e:
         logger.error(f"❌ Bot error: {e}")
-        try:
-            await application.stop()
-            await application.shutdown()
-        except:
-            pass
         raise
     finally:
         # تنظيف الموارد
@@ -388,7 +396,7 @@ if __name__ == '__main__':
     
     while retry_count < max_retries:
         try:
-            asyncio.run(main())
+            main()
             break  # خروج من اللوب إذا نجح البوت
         except KeyboardInterrupt:
             logger.info('🛑 Shutting down...')
