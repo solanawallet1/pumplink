@@ -1,9 +1,0 @@
-
-python-telegram-bot
-beautifulsoup4
-pillow
-requests
-selenium
-webdriver-manager
-aiohttp
-cryptography
