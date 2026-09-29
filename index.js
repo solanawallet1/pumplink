@@ -191,7 +191,58 @@ const SCANS = {
 // Simple web UI
 // ------------------------------------------------------------
 app.get("/", (req, res) => {
-  res.send(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Serum+Streamflow Scanner</title></head><body style="background:#0b0b0b;color:#eee;font-family:sans-serif;padding:20px;"><h1>Serum + Streamflow Scanner</h1><p>ضع addresses.txt في جذر المستودع. يحاول الآن استخدام Helius RPCs الموفّرة لتشغيل الفحوصات بالتوازي.</p><div><button onclick="start('serum_open_orders')">Serum OpenOrders</button> <button onclick="start('serum_token_accounts')">Serum Token Accounts</button> <button onclick="start('streamflow_streams')">Streamflow Streams</button> <button onclick="start('all')">فحص شامل</button></div><pre id="log" style="background:#000;color:#0f0;padding:12px;height:60vh;overflow:auto;margin-top:12px;"></pre><script>let es;function start(p){document.getElementById('log').textContent='بدء: '+p+'\n'; es=new EventSource('/scan-stream?platform='+p);es.onmessage=e=>{const d=JSON.parse(e.data); if(d.type==='progress'){ if(d.display) document.getElementById('log').textContent+=d.display+'\n'; if(d.foundItems){ d.foundItems.forEach(it=>document.getElementById('log').textContent+=`✅ ${it.address} — ${it.display}\n`); } if(d.errors){ d.errors.forEach(err=>document.getElementById('log').textContent+=`⚠️ ${err}\n`); } } else if(d.type==='note'){ document.getElementById('log').textContent+=d.text+'\n'; } else if(d.type==='done'){ document.getElementById('log').textContent+=`انتهى: ${d.summary}\nملف: ${d.file}\n`; es.close(); }}; es.onerror=()=>{ es.close(); } }</script></body></html>`);
+  const html = [
+    "<!doctype html>",
+    "<html lang=\"ar\" dir=\"rtl\">",
+    "<head>",
+    "  <meta charset=\"utf-8\">",
+    "  <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
+    "  <title>Serum + Streamflow Scanner</title>",
+    "</head>",
+    "<body style=\"background:#0b0b0b;color:#eee;font-family:sans-serif;padding:20px;\">",
+    "  <h1>Serum + Streamflow Scanner</h1>",
+    "  <p>ضع addresses.txt في جذر المستودع. يحاول الآن استخدام Helius RPCs الموفّرة لتشغيل الفحوصات بالتوازي.</p>",
+    "  <div>",
+    "    <button onclick=\"start('serum_open_orders')\">Serum OpenOrders</button>",
+    "    <button onclick=\"start('serum_token_accounts')\">Serum Token Accounts</button>",
+    "    <button onclick=\"start('streamflow_streams')\">Streamflow Streams</button>",
+    "    <button onclick=\"start('all')\">فحص شامل</button>",
+    "  </div>",
+    "  <pre id=\"log\" style=\"background:#000;color:#0f0;padding:12px;height:60vh;overflow:auto;margin-top:12px;\"></pre>",
+    "  <script>",
+    "    let es;",
+    "    function start(p) {",
+    "      document.getElementById('log').textContent = 'بدء: ' + p + '\\n';",
+    "      es = new EventSource('/scan-stream?platform=' + p);",
+    "      es.onmessage = function(e) {",
+    "        const d = JSON.parse(e.data);",
+    "        if (d.type === 'progress') {",
+    "          if (d.display) document.getElementById('log').textContent += d.display + '\\n';",
+    "          if (d.foundItems) {",
+    "            d.foundItems.forEach(function(it) {",
+    "              document.getElementById('log').textContent += '✅ ' + it.address + ' — ' + it.display + '\\n';",
+    "            });",
+    "          }",
+    "          if (d.errors) {",
+    "            d.errors.forEach(function(err) {",
+    "              document.getElementById('log').textContent += '⚠️ ' + err + '\\n';",
+    "            });",
+    "          }",
+    "        } else if (d.type === 'note') {",
+    "          document.getElementById('log').textContent += d.text + '\\n';",
+    "        } else if (d.type === 'done') {",
+    "          document.getElementById('log').textContent += 'انتهى: ' + d.summary + '\\nملف: ' + d.file + '\\n';",
+    "          es.close();",
+    "        }",
+    "      };",
+    "      es.onerror = function() { es.close(); };",
+    "    }",
+    "  </script>",
+    "</body>",
+    "</html>"
+  ].join('');
+
+  res.send(html);
 });
 
 // ------------------------------------------------------------
@@ -316,21 +367,18 @@ async function runScan(platform, addresses, send, outputFile, total) {
       const results = [];
       for (const wi of indices) {
         const w = wallets[wi]; if (!w) continue;
-        // memcmp filter at offset 40 for owner pubkey
         const filters = [{ memcmp: { offset: 40, bytes: w.toBase58() } }];
         try {
           const { accounts, error } = await fetchGetProgramAccounts(url, SERUM_PROGRAM_ID.toBase58(), filters);
           if (error) { results.push({ wi, accounts: [], error }); continue; }
           results.push({ wi, accounts, error: null });
         } catch (e) { results.push({ wi, accounts: [], error: e.message }); }
-        // tiny delay to avoid overwhelming endpoint
         await new Promise(r => setTimeout(r, 60));
       }
       return results;
     });
 
     const settled = await Promise.all(groupPromises);
-    // flatten
     const perWallet = new Map();
     for (const grp of settled) {
       for (const r of grp) {
@@ -338,7 +386,6 @@ async function runScan(platform, addresses, send, outputFile, total) {
       }
     }
 
-    // Now iterate in batches and record findings
     for (let i = 0; i < addresses.length; i += BATCH_PROGRESS) {
       const end = Math.min(i + BATCH_PROGRESS, addresses.length);
       const foundItems = [];
@@ -349,19 +396,16 @@ async function runScan(platform, addresses, send, outputFile, total) {
         if (entry.error) { errors.push(`wallet ${addresses[k]}: ${entry.error}`); continue; }
         const accounts = entry.accounts || [];
         if (!accounts || accounts.length === 0) continue;
-        // for each found OpenOrders account, attempt to parse known values; fallback to lamports
         let sumLam = 0;
         const items = [];
         for (const a of accounts) {
           const buf = accData(a.account);
           const lam = lamportsOf(a.account);
           sumLam += lam;
-          // attempt to parse using known layout if available
           let parsedInfo = null;
           try {
             if (SERUM_OPEN_ORDERS_LAYOUT && typeof SERUM_OPEN_ORDERS_LAYOUT.decode === 'function') {
               const decoded = SERUM_OPEN_ORDERS_LAYOUT.decode(buf);
-              // attempt to read unsettled funds if fields exist (field names vary)
               const baseFree = decoded.baseTokenFree || decoded.base_token_free || decoded.base_token_free_amount || 0;
               const quoteFree = decoded.quoteTokenFree || decoded.quote_token_free || decoded.quote_token_free_amount || 0;
               parsedInfo = { baseFree, quoteFree };
@@ -373,7 +417,7 @@ async function runScan(platform, addresses, send, outputFile, total) {
             const quoteUi = (parsedInfo.quoteFree || 0);
             items.push({ pubkey: a.pubkey, lamports: lam, base: baseUi, quote: quoteUi });
             if (baseUi > 0) acc.tok += baseUi;
-            if (quoteUi > 0) acc.usdc += quoteUi; // best-effort mapping
+            if (quoteUi > 0) acc.usdc += quoteUi;
           } else {
             items.push({ pubkey: a.pubkey, lamports: lam });
           }
@@ -392,7 +436,6 @@ async function runScan(platform, addresses, send, outputFile, total) {
   // ============ Streamflow streams: use memcmp scanning across program accounts and map to owners ============
   if (platform === 'streamflow_streams') {
     send({ type: 'note', text: 'جاري تحميل حسابات Streamflow عبر Helius (قد يستغرق وقتًا حسب العدد)...' });
-    // We will call getProgramAccounts without filters but on multiple endpoints until success; to be safe use dataSlice small
     const allAccounts = [];
     for (const url of activeUrls) {
       const { accounts, error } = await fetchGetProgramAccounts(url, STREAMFLOW_PROGRAM_ID.toBase58(), []);
@@ -415,7 +458,6 @@ async function runScan(platform, addresses, send, outputFile, total) {
       }
     }
 
-    // report results
     for (let i = 0; i < addresses.length; i += BATCH_PROGRESS) {
       const end = Math.min(i + BATCH_PROGRESS, addresses.length);
       const foundItems = [];
