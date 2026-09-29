@@ -1,0 +1,17 @@
+{
+  "name": "serum-streamflow-scanner",
+  "version": "1.0.0",
+  "description": "Scanner for Serum DEX and Streamflow accounts (detect claimable balances, open orders, streams)",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.74.0",
+    "@project-serum/serum": "^0.18.0",
+    "express": "^4.18.2",
+    "node-fetch": "^2.6.7",
+    "archiver": "^5.3.1"
+  }
+}
