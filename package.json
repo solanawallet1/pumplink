@@ -1,6 +1,6 @@
 {
   "name": "serum-streamflow-scanner",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Scanner for Serum DEX and Streamflow accounts (detect claimable balances, open orders, streams)",
   "main": "index.js",
   "type": "module",
